@@ -6,9 +6,30 @@ import torch.nn.functional as F
 
 try:
     from flash_attn_interface import flash_attn_func  # type: ignore[import]
-except ImportError:
-    # Fallback to FlashAttention 2
-    from flash_attn import flash_attn_func  # type: ignore[import]
+except Exception:
+    try:
+        # Fallback to FlashAttention 2
+        from flash_attn import flash_attn_func  # type: ignore[import]
+    except Exception:
+        # Final fallback to PyTorch SDPA for environments without flash-attn
+        def flash_attn_func(q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, causal: bool = False):
+            # q, k, v: [B, S, H, D]
+            B, S, H, D = q.shape
+            Hk = k.shape[2]
+            if Hk != H:
+                # Repeat k/v heads to match q heads (simple KV sharing)
+                if H % Hk != 0:
+                    raise RuntimeError(f"KV heads ({Hk}) must divide Q heads ({H}) for fallback")
+                rep = H // Hk
+                k = k.repeat_interleave(rep, dim=2)
+                v = v.repeat_interleave(rep, dim=2)
+            q_t = q.permute(0, 2, 1, 3)  # [B, H, S, D]
+            k_t = k.permute(0, 2, 1, 3)
+            v_t = v.permute(0, 2, 1, 3)
+            out = torch.nn.functional.scaled_dot_product_attention(
+                q_t, k_t, v_t, attn_mask=None, dropout_p=0.0, is_causal=causal
+            )
+            return out.permute(0, 2, 1, 3)  # [B, S, H, D]
 
 from models.common import trunc_normal_init_
 
