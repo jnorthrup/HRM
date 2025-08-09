@@ -1,0 +1,38 @@
+name: hrm.hrm_binary_v1@HierarchicalReasoningModel_BinaryV1
+loss:
+  name: losses@BinaryLossHead
+  loss_type: cross_entropy
+  
+# Binary-specific configurations
+vocab_size: 256  # Full byte range 0x00-0xFF
+register_width: 64  # Default to 64-bit registers
+architecture_embeddings: 8  # x86, ARM, RISC-V, MIPS, etc.
+
+# Adaptive computation for binary understanding
+halt_exploration_prob: 0.1
+halt_max_steps: 32  # More steps for complex instruction sequences
+
+# Hierarchical cycles for binary reasoning
+H_cycles: 3  # High-level: function/algorithm understanding
+L_cycles: 4  # Low-level: instruction-by-instruction processing
+
+# Model architecture
+H_layers: 6  # Deeper for semantic understanding
+L_layers: 8  # More layers for instruction complexity
+
+hidden_size: 768  # Larger hidden size for binary semantics
+num_heads: 12
+expansion: 4
+
+# Binary-specific embeddings
+instruction_emb_ndim: ${.hidden_size}
+arch_emb_ndim: 64  # Architecture-specific embeddings
+
+pos_encodings: learned  # Better for variable-length instructions
+seq_len: 1024  # Reasonable sequence for functions/shellcode
+
+# Special tokens for binary streams
+pad_token: 0x00
+instruction_boundary: 0xFF
+function_start: 0xFE
+function_end: 0xFD

@@ -1,6 +1,6 @@
 # Hierarchical Reasoning Model
 
-![](./assets/hrm.png)
+![hrm ](./assets/hrm.png)
 
 Reasoning, the process of devising and executing complex goal-oriented action sequences, remains a critical challenge in AI.
 Current large language models (LLMs) primarily employ Chain-of-Thought (CoT) techniques, which suffer from brittle task decomposition, extensive data requirements, and high latency. Inspired by the hierarchical and multi-timescale processing in the human brain, we propose the Hierarchical Reasoning Model (HRM), a novel recurrent architecture that attains significant computational depth while maintaining both training stability and efficiency.
@@ -78,9 +78,9 @@ Runtime: ~10 hours on a RTX 4070 laptop GPU
 
 ## Trained Checkpoints 🚧
 
- - [ARC-AGI-2](https://huggingface.co/sapientinc/HRM-checkpoint-ARC-2)
- - [Sudoku 9x9 Extreme (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-sudoku-extreme)
- - [Maze 30x30 Hard (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-maze-30x30-hard)
+- [ARC-AGI-2](https://huggingface.co/sapientinc/HRM-checkpoint-ARC-2)
+- [Sudoku 9x9 Extreme (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-sudoku-extreme)
+- [Maze 30x30 Hard (1000 examples)](https://huggingface.co/sapientinc/HRM-checkpoint-maze-30x30-hard)
 
 To use the checkpoints, see Evaluation section below.
 
@@ -111,8 +111,8 @@ python dataset/build_maze_dataset.py  # 1000 examples
 
 Explore the puzzles visually:
 
-* Open `puzzle_visualizer.html` in your browser.
-* Upload the generated dataset folder located in `data/...`.
+- Open `puzzle_visualizer.html` in your browser.
+- Upload the generated dataset folder located in `data/...`.
 
 ## Launch experiments
 
@@ -162,19 +162,19 @@ OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 pretrain.py data_path=data/sudoku-
 
 Evaluate your trained models:
 
-* Check `eval/exact_accuracy` in W&B.
-* For ARC-AGI, follow these additional steps:
+- Check `eval/exact_accuracy` in W&B.
+- For ARC-AGI, follow these additional steps:
 
 ```bash
 OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 evaluate.py checkpoint=<CHECKPOINT_PATH>
 ```
 
-* Then use the provided `arc_eval.ipynb` notebook to finalize and inspect your results.
+- Then use the provided `arc_eval.ipynb` notebook to finalize and inspect your results.
 
 ## Notes
 
- - Small-sample learning typically exhibits accuracy variance of around ±2 points.
- - For Sudoku-Extreme (1,000-example dataset), late-stage overfitting may cause numerical instability during training and Q-learning. It is advisable to use early stopping once the training accuracy approaches 100%.
+- Small-sample learning typically exhibits accuracy variance of around ±2 points.
+- For Sudoku-Extreme (1,000-example dataset), late-stage overfitting may cause numerical instability during training and Q-learning. It is advisable to use early stopping once the training accuracy approaches 100%.
 
 ## Citation 📜
 

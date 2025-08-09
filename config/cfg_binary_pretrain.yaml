@@ -1,0 +1,59 @@
+# Binary/Hutter Prize training config
+
+defaults:
+  - arch: hrm_binary
+  - _self_
+
+hydra:
+  output_subdir: null
+
+# Data paths - multiple sources
+data_paths:
+  binary: data/binary-streams  # Compiled binaries
+  hutter: data/hutter-prize    # Hutter Prize corpus (enwik8/enwik9)
+  mixed: data/mixed-binary-text # Combined training
+
+# Hutter Prize specific
+hutter_config:
+  dataset: enwik8  # 100MB of Wikipedia (or enwik9 for 1GB)
+  chunk_size: 1024  # Process in 1KB chunks
+  compression_target: true  # Train for compression
+  
+# Binary stream sources
+binary_sources:
+  - compiled_executables
+  - shellcode_samples
+  - network_packets
+  - compressed_archives
+  - encrypted_streams
+
+# Hyperparams - Training
+global_batch_size: 256  # Smaller batches for complex sequences
+epochs: 50000
+eval_interval: 5000
+checkpoint_every_eval: True
+
+# Learning rates tuned for binary/compression
+lr: 5e-5
+lr_min_ratio: 0.1
+lr_warmup_steps: 5000
+
+# Stronger regularization for binary patterns
+beta1: 0.9
+beta2: 0.98
+weight_decay: 0.05
+instruction_emb_weight_decay: 0.05
+
+# Multi-task training objectives
+training_objectives:
+  compression: 0.3      # Hutter Prize objective
+  prediction: 0.3      # Next-byte prediction
+  decompression: 0.2   # Compressed → Original
+  security: 0.2        # Malware/exploit detection
+
+# Evaluation metrics
+eval_metrics:
+  - compression_ratio
+  - perplexity
+  - binary_accuracy
+  - semantic_similarity
