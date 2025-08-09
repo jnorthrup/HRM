@@ -30,7 +30,7 @@ def sinusoidal_time_embedding(t: torch.Tensor, dim: int, max_period: int = 10000
 
 
 class TimeAdapter(nn.Module):
-    def __init__(self, hidden_size: int, time_dim: int = 128):
+    def __init__(self, hidden_size: int, time_dim: int = 128, zero_init: bool = True):
         super().__init__()
         self.time_dim = time_dim
         self.proj = nn.Sequential(
@@ -38,11 +38,15 @@ class TimeAdapter(nn.Module):
             nn.SiLU(),
             nn.Linear(hidden_size * 2, hidden_size * 2, bias=True),
         )
-        # Zero init the final layer to start as a no-op
+        # Initialize final layer
         last = self.proj[-1]
         if isinstance(last, nn.Linear):
-            nn.init.zeros_(last.weight)
-            nn.init.zeros_(last.bias)
+            if zero_init:
+                nn.init.zeros_(last.weight)
+                nn.init.zeros_(last.bias)
+            else:
+                nn.init.normal_(last.weight, mean=0.0, std=1e-2)
+                nn.init.zeros_(last.bias)
 
     def forward(self, t: torch.Tensor) -> torch.Tensor:
         temb = sinusoidal_time_embedding(t, self.time_dim)
@@ -50,11 +54,12 @@ class TimeAdapter(nn.Module):
 
 
 class HRMDenoiser(nn.Module):
-    def __init__(self, hrm_inner: nn.Module, hidden_size: int):
+    def __init__(self, hrm_inner: nn.Module, hidden_size: int, small_time_init: bool = False):
         super().__init__()
         self.hrm_inner = hrm_inner
         self.hidden_size = hidden_size
-        self.time_adapter = TimeAdapter(hidden_size)
+        # When small_time_init=True, make time adapter slightly non-identity
+        self.time_adapter = TimeAdapter(hidden_size, zero_init=not small_time_init)
         # Simple input/output projections to match HRM hidden
         self.in_proj = nn.Linear(hidden_size, hidden_size, bias=False)
         self.out_proj = nn.Linear(hidden_size, hidden_size, bias=False)

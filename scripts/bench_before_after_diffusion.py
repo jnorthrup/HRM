@@ -42,7 +42,7 @@ def set_all_seeds(seed: int):
     random.seed(seed)
 
 
-def build_model(hidden_size: int, batch_size: int, seq_len: int) -> HierarchicalReasoningModel_ACTV1:
+def build_model(hidden_size: int, batch_size: int, seq_len: int, h_layers: int, l_layers: int) -> HierarchicalReasoningModel_ACTV1:
     config = dict(
         batch_size=batch_size,
         seq_len=seq_len,
@@ -51,8 +51,8 @@ def build_model(hidden_size: int, batch_size: int, seq_len: int) -> Hierarchical
         vocab_size=256,
         H_cycles=1,
         L_cycles=1,
-        H_layers=0,  # keep light for CPU determinism bench
-        L_layers=0,
+    H_layers=h_layers,
+    L_layers=l_layers,
         hidden_size=hidden_size,
         expansion=4,
         num_heads=8,
@@ -119,10 +119,12 @@ def run_before(model: HierarchicalReasoningModel_ACTV1, iters: int, seed: int, s
 
 
 @torch.no_grad()
-def run_after(model: HierarchicalReasoningModel_ACTV1, iters: int, seed: int, shape: tuple[int, int, int], steps: int):
+def run_after(model: HierarchicalReasoningModel_ACTV1, iters: int, seed: int, shape: tuple[int, int, int], steps: int, time_init: str = "zero"):
     B, L, H = shape
     device = torch.device("cpu")
-    denoiser = HRMDenoiser(model.inner, hidden_size=H)
+    # small_time_init only matters when model has non-zero layers; enables visible differences
+    small_time_init = (time_init == "small")
+    denoiser = HRMDenoiser(model.inner, hidden_size=H, small_time_init=small_time_init)
     sched = DDIMScheduler(timesteps=steps, beta_schedule="cosine")
     h1, h2 = hashlib.sha256(), hashlib.sha256()
 
@@ -185,13 +187,16 @@ def main():
     p.add_argument("--B", type=int, default=int(os.environ.get("HRM_BENCH_B", 1)))
     p.add_argument("--L", type=int, default=int(os.environ.get("HRM_BENCH_L", 128)))
     p.add_argument("--H", type=int, default=int(os.environ.get("HRM_BENCH_H", 512)))
+    p.add_argument("--model-H-layers", type=int, default=int(os.environ.get("HRM_H_LAYERS", 0)), help="HRM H_layers for denoiser path")
+    p.add_argument("--model-L-layers", type=int, default=int(os.environ.get("HRM_L_LAYERS", 0)), help="HRM L_layers for denoiser path")
+    p.add_argument("--time-init", choices=["zero", "small"], default=os.environ.get("HRM_TIME_INIT", "zero"), help="Time adapter init; 'small' for non-identity FiLM")
     p.add_argument("--seconds", type=float, default=os.environ.get("HRM_BENCH_SECONDS"), help="Target seconds per run (each of the 4 runs). If provided, overrides --iters.")
     p.add_argument("--seconds-total", dest="seconds_total", type=float, default=os.environ.get("HRM_BENCH_SECONDS_TOTAL"), help="Target total seconds across all 4 runs (before x2 + after x2). Overrides --seconds and --iters.")
     args = p.parse_args()
 
     shape = (args.B, args.L, args.H)
     set_all_seeds(args.seed)
-    model = build_model(args.H, args.B, args.L)
+    model = build_model(args.H, args.B, args.L, args.model_H_layers, args.model_L_layers)
 
     # Determine iteration counts
     seconds_per_run: float | None = None
@@ -235,7 +240,7 @@ def main():
         iters_after = args.iters
 
     before = run_before(model, iters_before, args.seed, shape)
-    after = run_after(model, iters_after, args.seed, shape, args.steps)
+    after = run_after(model, iters_after, args.seed, shape, args.steps, time_init=args.time_init)
 
     summary = {
         "shape": list(shape),
@@ -250,8 +255,10 @@ def main():
             "total_requested": float(args.seconds_total) if args.seconds_total else None,
         },
         "seed": args.seed,
-        "before": before,
-        "after": after,
+    "before": before,
+    "after": after,
+    "model_layers": {"H_layers": args.model_H_layers, "L_layers": args.model_L_layers},
+    "time_init": args.time_init,
     }
     print(json.dumps(summary, indent=2))
 
