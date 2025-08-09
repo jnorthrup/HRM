@@ -3,12 +3,13 @@ Pijul-Git Gateway Dataset Builder
 Teaches HRM version control semantics through dual representations
 """
 
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any
 from dataclasses import dataclass
 import subprocess
 import json
 import numpy as np
 from pathlib import Path
+from utils.encodings import bytes_to_hi_lo_nibbles, content_address_sha256
 
 @dataclass
 class VersionControlExample:
@@ -144,7 +145,7 @@ class PijulGitCodec:
             'composition': self._get_patch_composition(patch_id)
         }
     
-    def tokenize_for_hrm(self, example: VersionControlExample) -> Dict[str, np.ndarray]:
+    def tokenize_for_hrm(self, example: VersionControlExample) -> Dict[str, Any]:
         """Convert to HRM's byte-stream format"""
         
         # Encode Git representation as bytes
@@ -162,10 +163,23 @@ class PijulGitCodec:
         # Encode semantic understanding
         intent_bytes = example.author_intent.encode('utf-8')
         
+        git_arr = np.array(git_bytes, dtype=np.uint8)
+        pijul_arr = np.array(pijul_bytes, dtype=np.uint8)
+        intent_arr = np.frombuffer(intent_bytes, dtype=np.uint8)
+
+        git_hi, git_lo = bytes_to_hi_lo_nibbles(git_arr)
+        pijul_hi, pijul_lo = bytes_to_hi_lo_nibbles(pijul_arr)
+
         return {
-            'git_stream': np.array(git_bytes, dtype=np.uint8),
-            'pijul_stream': np.array(pijul_bytes, dtype=np.uint8),
-            'intent_stream': np.array(list(intent_bytes), dtype=np.uint8),
+            'git_stream': git_arr,
+            'pijul_stream': pijul_arr,
+            'intent_stream': intent_arr,
+            'git_hi': git_hi,
+            'git_lo': git_lo,
+            'pijul_hi': pijul_hi,
+            'pijul_lo': pijul_lo,
+            'git_cid': content_address_sha256(git_arr),
+            'pijul_cid': content_address_sha256(pijul_arr),
             'is_equivalent': True  # Both represent the same change
         }
     
@@ -280,12 +294,17 @@ def build_dataset(repos: List[str], output_dir: str):
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
-    np.save(output_path / "git_streams.npy", 
-            np.array([e['git_stream'] for e in all_examples]))
-    np.save(output_path / "pijul_streams.npy",
-            np.array([e['pijul_stream'] for e in all_examples]))
-    np.save(output_path / "intent_streams.npy",
-            np.array([e['intent_stream'] for e in all_examples]))
+    np.save(output_path / "git_streams.npy", np.array([e['git_stream'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "pijul_streams.npy", np.array([e['pijul_stream'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "intent_streams.npy", np.array([e['intent_stream'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "git_hi.npy", np.array([e['git_hi'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "git_lo.npy", np.array([e['git_lo'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "pijul_hi.npy", np.array([e['pijul_hi'] for e in all_examples], dtype=object), allow_pickle=True)
+    np.save(output_path / "pijul_lo.npy", np.array([e['pijul_lo'] for e in all_examples], dtype=object), allow_pickle=True)
+    # Content addresses (store as jsonl for easy lookup)
+    with open(output_path / "content_ids.jsonl", "w") as f:
+        for e in all_examples:
+            f.write(json.dumps({"git": e['git_cid'], "pijul": e['pijul_cid']}) + "\n")
     
     print(f"Dataset saved to {output_dir}")
     print(f"Total examples: {len(all_examples)}")

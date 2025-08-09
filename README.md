@@ -176,6 +176,10 @@ OMP_NUM_THREADS=8 torchrun --nproc-per-node 8 evaluate.py checkpoint=<CHECKPOINT
 - Small-sample learning typically exhibits accuracy variance of around ±2 points.
 - For Sudoku-Extreme (1,000-example dataset), late-stage overfitting may cause numerical instability during training and Q-learning. It is advisable to use early stopping once the training accuracy approaches 100%.
 
+## Addenda
+
+- See `docs/diffusion_cherry_pick_demo.md` for a before/after diffusion cherry-pick demonstration and quick sanity checks.
+
 ## Citation 📜
 
 ```bibtex

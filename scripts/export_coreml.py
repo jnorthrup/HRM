@@ -51,6 +51,7 @@ def main():
     p.add_argument("--H-layers", type=int, default=0)
     p.add_argument("--L-layers", type=int, default=0)
     p.add_argument("--pos-enc", choices=["rope", "learned"], default="rope")
+    p.add_argument("--quant", choices=["none", "fp16", "int8"], default="none", help="Weight/compute precision preference")
     args = p.parse_args()
 
     cfg = dict(
@@ -95,12 +96,32 @@ def main():
         ct.TensorType(name="puzzle_ids", shape=puzzle_ids.shape, dtype=np.int32),
     ]
 
-    mlmodel = ct.convert(
-        traced,
+    convert_kwargs = dict(
         convert_to="mlprogram",
         inputs=inputs,
         compute_units=ct.ComputeUnit.ALL,
     )
+
+    # FP16 compute precision is the most portable for ANE; INT8 for MLProgram requires optimize APIs.
+    if args.quant == "fp16":
+        try:
+            convert_kwargs["compute_precision"] = ct.precision.FLOAT16
+        except Exception:
+            print("FP16 compute precision not supported by this coremltools version; proceeding with FP32.", file=sys.stderr)
+
+    mlmodel = ct.convert(traced, **convert_kwargs)
+
+    if args.quant == "int8":
+        # Best-effort: try post-training INT8 quantization if available for MLProgram
+        try:
+            from coremltools.optimize.coreml import optimize
+            from coremltools.optimize.coreml import QuantizationConfig
+
+            qconfig = QuantizationConfig(mode="linear_symmetric", dtype="int8")
+            mlmodel = optimize(mlmodel, qconfig)
+            print("Applied INT8 linear symmetric quantization via coremltools.optimize.coreml.")
+        except Exception as e:
+            print("INT8 quantization for MLProgram models requires coremltools.optimize.coreml (v6+). Skipping. Error: ", e, file=sys.stderr)
 
     mlmodel.save(args.out)
     print(f"Saved Core ML model to {args.out}")
