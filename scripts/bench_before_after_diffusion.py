@@ -169,27 +169,86 @@ def run_after(model: HierarchicalReasoningModel_ACTV1, iters: int, seed: int, sh
     }
 
 
+def _avg_time(fn, n: int = 5) -> float:
+    """Average wall time for running fn() n times."""
+    t0 = time.time()
+    for _ in range(n):
+        fn()
+    return (time.time() - t0) / n
+
+
 def main():
     p = argparse.ArgumentParser(description="Before/After diffusion deterministic benchmark")
-    p.add_argument("--iters", type=int, default=int(os.environ.get("HRM_BENCH_ITERS", 64)), help="Fixed iterations per run")
+    p.add_argument("--iters", type=int, default=int(os.environ.get("HRM_BENCH_ITERS", 64)), help="Fixed iterations per run (ignored if --seconds or --seconds-total provided)")
     p.add_argument("--seed", type=int, default=int(os.environ.get("HRM_BENCH_SEED", 123)))
     p.add_argument("--steps", type=int, default=int(os.environ.get("HRM_BENCH_STEPS", 20)))
     p.add_argument("--B", type=int, default=int(os.environ.get("HRM_BENCH_B", 1)))
     p.add_argument("--L", type=int, default=int(os.environ.get("HRM_BENCH_L", 128)))
     p.add_argument("--H", type=int, default=int(os.environ.get("HRM_BENCH_H", 512)))
+    p.add_argument("--seconds", type=float, default=os.environ.get("HRM_BENCH_SECONDS"), help="Target seconds per run (each of the 4 runs). If provided, overrides --iters.")
+    p.add_argument("--seconds-total", dest="seconds_total", type=float, default=os.environ.get("HRM_BENCH_SECONDS_TOTAL"), help="Target total seconds across all 4 runs (before x2 + after x2). Overrides --seconds and --iters.")
     args = p.parse_args()
 
     shape = (args.B, args.L, args.H)
     set_all_seeds(args.seed)
     model = build_model(args.H, args.B, args.L)
 
-    before = run_before(model, args.iters, args.seed, shape)
-    after = run_after(model, args.iters, args.seed, shape, args.steps)
+    # Determine iteration counts
+    seconds_per_run: float | None = None
+    if args.seconds_total:
+        try:
+            total = float(args.seconds_total)
+            seconds_per_run = max(0.01, total / 4.0)
+        except Exception:
+            seconds_per_run = None
+    elif args.seconds:
+        try:
+            seconds_per_run = max(0.01, float(args.seconds))
+        except Exception:
+            seconds_per_run = None
+
+    if seconds_per_run is not None:
+        # Calibrate per pipeline to hit approximately seconds_per_run deterministically
+        B, L, H = shape
+        device = torch.device("cpu")
+        denoiser = HRMDenoiser(model.inner, hidden_size=H)
+        sched = DDIMScheduler(timesteps=args.steps, beta_schedule="cosine")
+
+        # Prepare single-iteration callables using disjoint seeds to avoid overlapping with actual runs
+        calib_seed = args.seed + 10_000_000
+
+        def one_before():
+            g = torch.Generator(device="cpu").manual_seed(calib_seed)
+            z = torch.randn(B, L, H, dtype=torch.float32, generator=g)
+            _ = model.inner.lm_head(z).argmax(dim=-1)
+
+        def one_after():
+            z0 = sched.sample(args.steps, (B, L, H), lambda x, t, c: denoiser(x, t, c), device=device, dtype=torch.float32, seed=calib_seed)
+            _ = model.inner.lm_head(z0).argmax(dim=-1)
+
+        t_iter_before = _avg_time(one_before, n=3)
+        t_iter_after = _avg_time(one_after, n=3)
+        iters_before = max(1, int(seconds_per_run / max(t_iter_before, 1e-9)))
+        iters_after = max(1, int(seconds_per_run / max(t_iter_after, 1e-9)))
+    else:
+        iters_before = args.iters
+        iters_after = args.iters
+
+    before = run_before(model, iters_before, args.seed, shape)
+    after = run_after(model, iters_after, args.seed, shape, args.steps)
 
     summary = {
         "shape": list(shape),
         "steps": args.steps,
-        "iters": args.iters,
+        "iters": {
+            "requested": args.iters,
+            "before": iters_before,
+            "after": iters_after,
+        },
+        "seconds": {
+            "per_run": seconds_per_run,
+            "total_requested": float(args.seconds_total) if args.seconds_total else None,
+        },
         "seed": args.seed,
         "before": before,
         "after": after,
