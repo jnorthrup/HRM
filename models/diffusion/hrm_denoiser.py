@@ -33,10 +33,11 @@ class TimeAdapter(nn.Module):
     def __init__(self, hidden_size: int, time_dim: int = 128, zero_init: bool = True):
         super().__init__()
         self.time_dim = time_dim
+        # 4xH outputs: [scale_H, shift_H, scale_L, shift_L]
         self.proj = nn.Sequential(
-            nn.Linear(time_dim, hidden_size * 2, bias=True),
+            nn.Linear(time_dim, hidden_size * 4, bias=True),
             nn.SiLU(),
-            nn.Linear(hidden_size * 2, hidden_size * 2, bias=True),
+            nn.Linear(hidden_size * 4, hidden_size * 4, bias=True),
         )
         # Initialize final layer
         last = self.proj[-1]
@@ -77,19 +78,22 @@ class HRMDenoiser(nn.Module):
         B, L, H = x_t.shape
         assert H == self.hidden_size
 
-        # Prepare time FiLM
-        film = self.time_adapter(t.to(x_t.device))  # [B, 2H]
-        scale, shift = film.chunk(2, dim=-1)
-        scale = scale.unsqueeze(1)
-        shift = shift.unsqueeze(1)
+        # Prepare time FiLM (4xH): scale_H, shift_H, scale_L, shift_L
+        film = self.time_adapter(t.to(x_t.device))  # [B, 4H]
+        scale_H, shift_H, scale_L, shift_L = film.chunk(4, dim=-1)
+        scale_H = scale_H.unsqueeze(1)
+        shift_H = shift_H.unsqueeze(1)
+        scale_L = scale_L.unsqueeze(1)
+        shift_L = shift_L.unsqueeze(1)
 
-        # Create input with time FiLM
-        x = self.in_proj(x_t) * (1 + torch.tanh(scale)) + shift
+        # Create H/L inputs with FiLM
+        base = self.in_proj(x_t)
+        z_H = base * (1 + torch.tanh(scale_H)) + shift_H
+        z_L = base * (1 + torch.tanh(scale_L)) + shift_L
 
         # Run a minimal reasoning pass using HRM's levels; skip RoPE for strict simplicity
         with torch.no_grad():
-            z_H, z_L = x, x
-            z_L = self.hrm_inner.L_level(z_L, z_H + x, cos_sin=None)  # type: ignore
+            z_L = self.hrm_inner.L_level(z_L, z_H + base, cos_sin=None)  # type: ignore
             z_H = self.hrm_inner.H_level(z_H, z_L, cos_sin=None)      # type: ignore
 
         eps = self.out_proj(z_H)
